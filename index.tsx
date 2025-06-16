@@ -1,8 +1,6 @@
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import 'highlight.js/styles/github-dark.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

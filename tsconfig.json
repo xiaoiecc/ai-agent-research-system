@@ -9,22 +9,25 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
+    // "allowImportingTsExtensions": true, // Removed as per plan, or set to false. Browser needs .js extensions.
     "isolatedModules": true,
     "moduleDetection": "force",
-    "noEmit": true,
     "allowJs": true,
     "jsx": "react-jsx",
+
+    /* Emission */
+    "noEmit": false,
+    "outDir": "./dist",
+    "sourceMap": true,
+    "declaration": false,
+    "declarationMap": false,
 
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true,
-
-    "paths": {
-      "@/*" :  ["./*"]
-    }
+    "noUncheckedSideEffectImports": true
+    // "paths": { "@/*" :  ["./*"] } // Removed as per plan
   }
 }

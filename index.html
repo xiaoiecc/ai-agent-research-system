@@ -1,8 +1,7 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-R-8" />
+  <meta charset="UTF-8" /> <!-- Corrected from UTF-R-8 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Agent Research System</title>
   <script src="https://cdn.tailwindcss.com"></script>
@@ -27,20 +26,29 @@
       overscroll-behavior-y: contain; /* Prevents pull-to-refresh on mobile */
     }
   </style>
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@^19.1.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
-    "react/": "https://esm.sh/react@^19.1.0/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.2.0"
+  <script>
+    // IMPORTANT: Replace "YOUR_GEMINI_API_KEY_HERE" with your actual Gemini API key.
+    // This key is used by services/geminiService.ts to authenticate with the Google Gemini API.
+    // For development, you can set it directly here.
+    // For production, ensure this key is secured and not publicly exposed if this were a deployed web application with a backend.
+    // Since this is a client-side only application without a backend, the key will be visible in the source.
+    window.GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE";
+  </script>
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@19.1.0",
+      "react-dom/client": "https://esm.sh/react-dom@19.1.0/client",
+      "marked": "https://esm.sh/marked@15.0.12",
+      "highlight.js": "https://esm.sh/highlight.js@11.11.1",
+      "@google/genai": "https://esm.sh/@google/genai@1.2.0"
+    }
   }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
+  </script>
+  <link rel="stylesheet" href="https://esm.sh/highlight.js@11.11.1/styles/github-dark.css">
 </head>
 <body class="bg-gray-900 text-gray-100 antialiased">
   <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
+  <script type="module" src="index.tsx"></script>
 </body>
 </html>
