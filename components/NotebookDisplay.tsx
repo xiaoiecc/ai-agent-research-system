@@ -1,6 +1,40 @@
 
 import React, { useRef, useEffect } from 'react';
 import { NotebookEntry, AgentRole, ResearchPhase } from '../types'; 
+import { marked, Renderer } from 'marked'; // Import Renderer
+import hljs from 'highlight.js';
+
+// Custom renderer for code blocks
+const renderer = new Renderer();
+renderer.code = (code, lang, escaped) => {
+  const highlight = hljs.highlight(code, { language: lang || 'plaintext', ignoreIllegals: true }).value;
+  const rawCode = code; // The original, unhighlighted code
+
+  // The preformatted code block
+  const preBlock = `<pre><code class="hljs ${lang || ''}">${highlight}</code></pre>`;
+
+  // The copy button
+  // Using encodeURIComponent for data attribute to handle special characters
+  const copyButton = `<button class="copy-code-btn absolute top-2 right-2 p-1 text-xs bg-gray-600 hover:bg-gray-500 text-white rounded" data-code="${encodeURIComponent(rawCode)}">Copy</button>`;
+
+  // Container with margin similar to old pre blocks (my-2)
+  return `<div class="code-block-wrapper relative my-2">${preBlock}${copyButton}</div>`;
+};
+
+// Configure marked to use the custom renderer and highlight.js for syntax highlighting
+marked.setOptions({
+  renderer: renderer, // Use the custom renderer
+  highlight: function(code, lang) {
+    // This function is still needed for marked to know that highlighting is handled,
+    // even if the main highlighting logic is within renderer.code.
+    const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+    return hljs.highlight(code, { language, ignoreIllegals: true }).value;
+  },
+  pedantic: false,
+  gfm: true, // Enable GitHub Flavored Markdown
+  breaks: false, // Use GFM line breaks
+  sanitize: false // Important: Set to false if you trust the input, or use a sanitizer like DOMPurify. For now, assuming content is trusted.
+});
 
 interface NotebookDisplayProps {
   entries: NotebookEntry[];
@@ -9,53 +43,53 @@ interface NotebookDisplayProps {
 
 const NotebookDisplay: React.FC<NotebookDisplayProps> = ({ entries, currentPhase }) => {
   const endOfNotebookRef = useRef<HTMLDivElement>(null);
+  const notebookContainerRef = useRef<HTMLDivElement>(null); // Add a ref for the main container
 
   useEffect(() => {
     endOfNotebookRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [entries]);
-  
-  const formatContent = (content: string) => {
-    let html = content;
-    
-    // Process code blocks first to prevent their content from being altered by other rules
-    // Match ```python ... ``` or ``` ... ```
-    // The [\s\S]*? part matches any character including newlines, non-greedily
-    html = html.replace(/```(?:python\n|\n)?([\s\S]*?)```/g, (match, codeContent) => {
-      // Escape HTML characters within the code content
-      const escapedCode = codeContent
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-      return `<pre class="bg-gray-900 p-2 my-2 rounded-md overflow-x-auto"><code class="text-sm text-yellow-300">${escapedCode.trim()}</code></pre>`;
-    });
 
-    // Headings (applied after code blocks)
-    html = html.replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold mt-3 mb-1 text-indigo-400">$1</h2>');
-    html = html.replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-2 mb-1 text-indigo-300">$1</h3>');
-    html = html.replace(/^#### (.*$)/gim, '<h4 class="text-md font-semibold mt-1 text-indigo-200">$1</h4>');
-    
-    // Bold and Italics (applied after code blocks)
-    // Ensure these don't interfere with already processed HTML, though unlikely with current patterns
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>'); 
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>'); 
-    
-    // Convert newlines to <br /> for text not inside <pre> tags.
-    // This is complex to do perfectly with regex alone.
-    // Given the `whitespace-pre-wrap` style on the parent, explicit <br /> might only be needed
-    // if newlines are inconsistently handled or if specific line breaks are desired outside of natural paragraph flow.
-    // For now, relying on `whitespace-pre-wrap` for general text and `<pre>` for code blocks.
-    // If specific <br /> conversion is needed, it should be done carefully to avoid double newlines or breaking <pre> formatting.
-    // Example: Split by <pre> blocks, process non-pre sections, then rejoin.
-    // For simplicity, we'll assume `whitespace-pre-wrap` is sufficient for most non-code text newlines.
-    // html = html.replace(/\n/g, '<br />'); // Avoid global replacement as it breaks <pre>
+  // Event listener for copy buttons
+  useEffect(() => {
+    const container = notebookContainerRef.current;
+    if (!container) return;
 
-    return html;
-  };
+    const handleClick = async (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (target.classList.contains('copy-code-btn')) {
+        const codeToCopy = target.dataset.code;
+        if (codeToCopy) {
+          try {
+            await navigator.clipboard.writeText(decodeURIComponent(codeToCopy));
+            // Optional: Brief visual feedback
+            const originalText = target.innerText;
+            target.innerText = 'Copied!';
+            setTimeout(() => {
+              target.innerText = originalText;
+            }, 1500);
+          } catch (err) {
+            console.error('Failed to copy code:', err);
+            // Optional: Visual feedback for error
+            const originalText = target.innerText;
+            target.innerText = 'Failed!';
+            target.style.backgroundColor = 'red';
+            setTimeout(() => {
+              target.innerText = originalText;
+              target.style.backgroundColor = ''; // Reset style
+            }, 1500);
+          }
+        }
+      }
+    };
+
+    container.addEventListener('click', handleClick);
+    return () => {
+      container.removeEventListener('click', handleClick);
+    };
+  }, [entries]); // Re-run if entries change, listener is on container
 
   return (
-    <div className="bg-gray-800 p-4 rounded-lg shadow-inner h-full overflow-y-auto">
+    <div className="bg-gray-800 p-4 rounded-lg shadow-inner h-full overflow-y-auto" ref={notebookContainerRef}>
       <div className="flex justify-between items-center mb-3 sticky top-0 bg-gray-800 py-2 z-10">
         <h2 className="text-2xl font-semibold text-indigo-400">Research Notebook</h2>
         <span className="text-sm text-gray-400 bg-gray-700 px-2 py-1 rounded">Phase: {currentPhase}</span>
@@ -79,8 +113,8 @@ const NotebookDisplay: React.FC<NotebookDisplayProps> = ({ entries, currentPhase
             </span>
             <span className="text-xs text-gray-500">{entry.timestamp.toLocaleTimeString()}</span>
           </div>
-          {/* whitespace-pre-wrap handles newlines in regular text. Code blocks are handled by <pre> via formatContent */}
-          <div className="text-gray-200 whitespace-pre-wrap text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: formatContent(entry.content) }} />
+          {/* whitespace-pre-wrap handles newlines in regular text. Code blocks are now handled by marked.parse() */}
+          <div className="text-gray-200 whitespace-pre-wrap text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: marked.parse(entry.content) }} />
         </div>
       ))}
       <div ref={endOfNotebookRef} />
