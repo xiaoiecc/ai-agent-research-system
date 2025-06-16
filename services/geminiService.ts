@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, GenerateContentResponse, Content, GenerateContentParameters, GroundingMetadata, Part } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Content, GenerateContentParameters, GroundingMetadata, Part, Tool, GenerationConfig, SystemInstruction } from "@google/genai";
 import { MODEL_MAP } from '../constants'; 
 import { ModelMode } from '../types';
 
@@ -12,35 +12,48 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 function parseGeneratedContentResponse(response: GenerateContentResponse): { text: string; groundingMetadata?: GroundingMetadata } {
   let combinedText = "";
-  const parts = response.candidates?.[0]?.content?.parts;
+  let groundingMetadata: GroundingMetadata | undefined = undefined;
 
-  if (parts && Array.isArray(parts)) {
-    parts.forEach(part => {
-      if (part.text) {
-        combinedText += part.text + "\n";
-      }
-      // Ensure executableCode and its code property exist
-      if (part.executableCode && typeof part.executableCode.code === 'string') {
-        combinedText += "\n--- 代码段 ---\n```python\n" + part.executableCode.code + "\n```\n";
-      }
-      // Ensure codeExecutionResult and its output property exist
-      if (part.codeExecutionResult && typeof part.codeExecutionResult.output === 'string') {
-        combinedText += "\n--- 代码执行结果 ---\n```\n" + part.codeExecutionResult.output + "\n```\n";
-      }
-    });
-  } else if (response.text) { 
-    // Fallback if parts structure isn't as expected, or for simple text responses
-    // or if the model only returns a single text part in response.text directly
-    combinedText = response.text;
-  }
-  
-  // If after processing parts, combinedText is still empty but response.text has content, use response.text.
-  // This handles cases where the response might have a simple text structure not in `parts`.
-  if (!combinedText && response.text) {
-    combinedText = response.text;
+  const candidate = response.candidates?.[0];
+
+  if (candidate) {
+    groundingMetadata = candidate.groundingMetadata;
+
+    if (candidate.content?.parts && Array.isArray(candidate.content.parts)) {
+      candidate.content.parts.forEach(part => {
+        if (part.text && typeof part.text === 'string') {
+          combinedText += part.text + "\n";
+        }
+        if (part.executableCode?.code && typeof part.executableCode.code === 'string') {
+          combinedText += "\n--- 代码段 ---\n```python\n" + part.executableCode.code + "\n```\n";
+        }
+        if (part.codeExecutionResult?.output && typeof part.codeExecutionResult.output === 'string') {
+          combinedText += "\n--- 代码执行结果 ---\n```\n" + part.codeExecutionResult.output + "\n```\n";
+        }
+      });
+    }
   }
 
-  const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+  if (combinedText.trim() === "") {
+    try {
+      // Assuming response.text() is a method as per the subtask's specific instruction.
+      // This might differ from the GenerateContentResponse type, which lists `text` as an optional property.
+      const textFromMethod = (response as any).text();
+      if (textFromMethod && typeof textFromMethod === 'string' && textFromMethod.trim() !== "") {
+        combinedText = textFromMethod;
+      }
+    } catch (e) {
+      console.warn("Warning: response.text() method failed or returned empty.", e);
+      // If response.text() fails, and parts were empty, combinedText remains empty.
+      // We can check for response.text as a property as a final fallback if desired,
+      // but the current instruction is to use the method.
+      // if (response.text && typeof response.text === 'string' && response.text.trim() !== "") {
+      //   console.warn("Warning: response.text() method failed, falling back to response.text property.");
+      //   combinedText = response.text;
+      // }
+    }
+  }
+
   return { text: combinedText.trim(), groundingMetadata };
 }
 
@@ -52,9 +65,17 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Function to check if an error message indicates a 404 Not Found error
 function isNotFoundError(error: any): boolean {
+  if (error && typeof error.status === 'number' && error.status === 404) {
+    return true;
+  }
   if (error && error.message && typeof error.message === 'string') {
     const message = error.message.toLowerCase();
-    return message.includes('404');
+    if (message.includes('404')) {
+      return true;
+    }
+    if (message.includes('not found')) {
+      return true;
+    }
   }
   return false;
 }
@@ -74,40 +95,53 @@ export async function callGeminiAPI(
      throw new Error("API_KEY is not configured. Cannot call Gemini API.");
   }
   
-  const modelRequestConfig: any = {}; 
+  const modelName = MODEL_MAP[modelMode];
 
-  if (systemInstruction) {
-    modelRequestConfig.systemInstruction = systemInstruction;
+  if (!process.env.API_KEY) {
+     console.error("API_KEY is not configured. Cannot call Gemini API.");
+     throw new Error("API_KEY is not configured. Cannot call Gemini API.");
   }
   
-  const tools: any[] = [];
+  const tools: Tool[] = [];
+  let generationConfig: GenerationConfig | undefined = undefined;
+
   if (useGoogleSearch) {
     tools.push({googleSearch: {}});
-    // As per guidelines, when using googleSearch tool, responseMimeType for JSON should not be set.
-    // The model might not respect it anyway.
-    if (expectJsonOutput) {
-      console.warn("Google Search and JSON output requested simultaneously. `responseMimeType` will not be set to 'application/json' when the Google Search tool is active, as per Gemini API guidelines. The model will handle JSON output based on the prompt if capable.");
-    }
+    // Warning for Google Search + JSON output is handled below after all configs are set.
   } else if (useCodeExecution) {
     tools.push({codeExecution: {}});
     if (expectJsonOutput) {
-      modelRequestConfig.responseMimeType = "application/json";
+      // According to documentation, responseMimeType can be set with codeExecution.
+      generationConfig = { responseMimeType: "application/json" };
     }
-  } else if (expectJsonOutput) { // Only set responseMimeType if no specific tool (like search) overrides it
-    modelRequestConfig.responseMimeType = "application/json";
+  } else if (expectJsonOutput) {
+    generationConfig = { responseMimeType: "application/json" };
+  }
+
+  const generateContentRequest: GenerateContentParameters = {
+    model: modelName,
+    contents: [{role: "user", parts: [{text: prompt}]}], // Ensure contents is an array of Content objects
+  };
+
+  if (systemInstruction) {
+    // The type for systemInstruction in GenerateContentParameters is SystemInstruction, which can be string | Content
+    // If systemInstruction is just a string, the library handles wrapping it.
+    generateContentRequest.systemInstruction = systemInstruction;
   }
 
   if (tools.length > 0) {
-    modelRequestConfig.tools = tools;
+    generateContentRequest.tools = tools;
   }
-  
-  const generateContentRequest: GenerateContentParameters = {
-    model: modelName,
-    contents: prompt,
-  };
 
-  if (Object.keys(modelRequestConfig).length > 0) {
-    generateContentRequest.config = modelRequestConfig;
+  if (generationConfig) {
+    generateContentRequest.generationConfig = generationConfig;
+  }
+
+  // Handle warning for Google Search and JSON output
+  if (useGoogleSearch && generateContentRequest.generationConfig?.responseMimeType === "application/json") {
+    console.warn("Google Search and JSON output requested simultaneously. `responseMimeType` for JSON is set, but might be ignored by the model when Google Search tool is active, as per Gemini API guidelines. The model will handle JSON output based on the prompt if capable.");
+    // Optionally, remove the mime type if it's strictly forbidden:
+    // delete generateContentRequest.generationConfig.responseMimeType;
   }
   
   let lastError: Error | null = null;

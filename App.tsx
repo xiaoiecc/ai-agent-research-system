@@ -17,7 +17,7 @@ import ChatInput from './components/ChatInput';
 import ChatMessageDisplay from './components/ChatMessageDisplay';
 import NotebookDisplay from './components/NotebookDisplay';
 import ModeSelector from './components/ModeSelector';
-import { GroundingMetadata as APIGroundingMetadata } from "@google/genai"; // For API response type if needed
+import { GroundingMetadata as APIGroundingMetadata, GroundingChunk as ApiLibraryGroundingChunk } from "@google/genai";
 
 
 // Helper to create unique IDs
@@ -74,7 +74,7 @@ const App: React.FC = () => {
     });
   }, []);
   
-  const parseAndCleanJsonString = (jsonString: string): any | null => {
+  const parseAndCleanJsonString = (jsonString: string): SynthesizerDeciderOutput | null => {
     let cleanedString = jsonString.trim();
     const fenceRegex = /^```(?:json)?\s*\n?(.*?)\n?\s*```$/s;
     const match = cleanedString.match(fenceRegex);
@@ -129,14 +129,14 @@ const App: React.FC = () => {
             if (!updatedGrounding) {
               updatedGrounding = { groundingChunks: [] };
             }
-            const newChunks: GroundingChunk[] = (apiGroundingMetadata.groundingChunks as any[])
-              .map((apiChunk: any) => {
+            const newChunks: GroundingChunk[] = (apiGroundingMetadata.groundingChunks as ApiLibraryGroundingChunk[])
+              .map((apiChunk: ApiLibraryGroundingChunk) => {
                 if (apiChunk.web && typeof apiChunk.web.uri === 'string') {
                   return { web: { uri: apiChunk.web.uri, title: apiChunk.web.title || '' } };
                 }
                 return null;
               })
-              .filter(chunk => chunk !== null) as GroundingChunk[];
+              .filter(chunk => chunk !== null) as GroundingChunk[]; // Casting to local GroundingChunk[]
             
             updatedGrounding.groundingChunks = [
               ...(updatedGrounding.groundingChunks || []),
@@ -150,8 +150,8 @@ const App: React.FC = () => {
         const errorMessage = error instanceof Error ? error.message : "Unknown error from LLM";
         addHistoryEntry(AgentRole.SYSTEM, `Error from ${agentRole}: ${errorMessage}`, currentLoop, ResearchPhase.ERROR);
         updateResearchStateFields({ errorMessage });
-        setCurrentPhase(ResearchPhase.ERROR);
-        setIsProcessing(false);
+        // setCurrentPhase(ResearchPhase.ERROR); // Removed: Let runAgentSystem's catch handle phase update
+        // setIsProcessing(false); // Removed: Let runAgentSystem's finally block handle this
         throw error;
       }
     };
@@ -249,11 +249,17 @@ const App: React.FC = () => {
         
         const parsedDecision = parseAndCleanJsonString(synthesizerRawOutput) as SynthesizerDeciderOutput | null;
 
-        if (!parsedDecision || !parsedDecision.synthesisUpdate || !parsedDecision.decision || !parsedDecision.reasonForDecision) {
-            addHistoryEntry(AgentRole.SYSTEM, "Error: Synthesizer & Decider output was not valid JSON or lacked required fields. Assuming research needs to continue.", loopIteration, ResearchPhase.ERROR);
+        if (parsedDecision === null) {
+            addHistoryEntry(AgentRole.SYSTEM, "Error: Failed to parse Synthesizer & Decider output. Assuming research needs to continue.", loopIteration, ResearchPhase.ERROR);
+            updateResearchStateFields({
+                currentSynthesizedSolution: (researchStateRef.current?.currentSynthesizedSolution || "") + "\n[System Note: Synthesizer output parsing failed. Last proposal/critique might not be fully integrated.]",
+                errorMessage: "Failed to parse Synthesizer & Decider output."
+            });
+        } else if (!parsedDecision.synthesisUpdate || !parsedDecision.decision || !parsedDecision.reasonForDecision) {
+            addHistoryEntry(AgentRole.SYSTEM, "Error: Synthesizer & Decider output lacked required fields. Assuming research needs to continue.", loopIteration, ResearchPhase.ERROR);
             updateResearchStateFields({ 
-                currentSynthesizedSolution: (researchStateRef.current?.currentSynthesizedSolution || "") + "\n[System Note: Synthesizer failed to provide a valid update in this loop. Last proposal/critique might not be fully integrated.]",
-                errorMessage: "Synthesizer & Decider output malformed."
+                currentSynthesizedSolution: (researchStateRef.current?.currentSynthesizedSolution || "") + "\n[System Note: Synthesizer output was missing required fields. Last proposal/critique might not be fully integrated.]",
+                errorMessage: "Synthesizer & Decider output incomplete."
             });
         } else {
             updateResearchStateFields({ currentSynthesizedSolution: parsedDecision.synthesisUpdate });
