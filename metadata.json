@@ -1,0 +1,6 @@
+{
+  "name": "AI Agent Research System",
+  "description": "A multi-stage AI agent system that uses a conductor, a core research loop (strategy, adversarial exploration, arbitration, decision), and a responder to answer user queries. Supports fast and slow Gemini models.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
