@@ -3,12 +3,12 @@ import { GoogleGenAI, GenerateContentResponse, Content, GenerateContentParameter
 import { MODEL_MAP } from '../constants'; 
 import { ModelMode } from '../types';
 
-// Ensure API_KEY is available. In a real build, this would be populated.
-if (!process.env.API_KEY) {
-  console.warn("API_KEY environment variable not set. Gemini API calls will likely fail. Please ensure it is set in your environment.");
+// Ensure GEMINI_API_KEY is available in the window object.
+if (!(window as any).GEMINI_API_KEY) {
+  console.warn("GEMINI_API_KEY is not set in window. Please set it in index.html. Gemini API calls will likely fail.");
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: (window as any).GEMINI_API_KEY });
 
 function parseGeneratedContentResponse(response: GenerateContentResponse): { text: string; groundingMetadata?: GroundingMetadata } {
   let combinedText = "";
@@ -69,9 +69,9 @@ export async function callGeminiAPI(
 ): Promise<{ text: string; groundingMetadata?: GroundingMetadata }> {
   const modelName = MODEL_MAP[modelMode];
 
-  if (!process.env.API_KEY) {
-     console.error("API_KEY is not configured. Cannot call Gemini API.");
-     throw new Error("API_KEY is not configured. Cannot call Gemini API.");
+  if (!(window as any).GEMINI_API_KEY) {
+     console.error("GEMINI_API_KEY is not configured in window. Cannot call Gemini API.");
+     throw new Error("GEMINI_API_KEY is not configured in window. Cannot call Gemini API.");
   }
   
   const modelRequestConfig: any = {}; 
